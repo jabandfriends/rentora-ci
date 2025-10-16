@@ -1,0 +1,49 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKERHUB_USER = credentials('dockerhub-username')
+        DOCKERHUB_PASS = credentials('dockerhub-password')
+    }
+
+    triggers{
+        pollSCM('H/5 * * * *')
+    }
+
+    stages {
+        stage ('Checkout GitHub Repository') {
+            steps {
+                parallel(
+                    "Backend" : {
+                        dir('backend') {
+                            git url: 'https://github.com/jabandfriends/rentora-api.git', branch: 'main', credentialsId: 'github-creds'
+                        }
+                    },
+                    "Frontend" : {
+                        dir('frontend') {
+                            git url: 'https://github.com/jabandfriends/rentora-interface.git', branch: 'main', credentialsId: 'github-creds'
+                        }
+                    }
+                )
+            }
+        }
+
+        stage ('Login DockerHub') {
+            steps {
+                script {
+                    sh """
+                    echo ${DOCKERHUB_PASS} | docker login -u ${DOCKERHUB_USER} --password-stdin
+                """
+                }
+            }
+        }
+
+        stage('Build Backend Docker Images) {
+            steps {
+                dir('backend') {
+                    sh "docker build -t ${BACKEND_IMAGE} ."
+                }
+            }
+        }
+    }
+}

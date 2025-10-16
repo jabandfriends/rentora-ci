@@ -10,16 +10,22 @@ pipeline {
         FRONTEND_PORT = "5173" 
     }
 
+    triggers{
+        pollSCM('H/5 * * * *')
+    }
+
     stages {
 
         stage('Checkout Repos') {
             steps {
+                parallel(
                 dir('backend') {
                     git url: 'https://github.com/jabandfriends/rentora-api.git', branch: 'develop', credentialsId: 'github-creds'
                 }
                 dir('frontend') {
                     git url: 'https://github.com/jabandfriends/rentora-interface.git', branch: 'test/e2e-testing', credentialsId: 'github-creds'
                 }
+                )
             }
         }
 
