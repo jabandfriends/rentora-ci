@@ -8,6 +8,8 @@ pipeline {
         BACKEND_CONTAINER = "rentora-backend-container"
         FRONTEND_CONTAINER = "rentora-frontend-container"
         FRONTEND_PORT = "5173" 
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
+        PATH = "/opt/homebrew/bin:/usr/local/bin:${env.PATH}"
     }
 
     triggers{
@@ -15,16 +17,19 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout Repos') {
             steps {
                 parallel(
-                dir('backend') {
-                    git url: 'https://github.com/jabandfriends/rentora-api.git', branch: 'develop', credentialsId: 'github-creds'
-                }
-                dir('frontend') {
-                    git url: 'https://github.com/jabandfriends/rentora-interface.git', branch: 'test/e2e-testing', credentialsId: 'github-creds'
-                }
+                    "Backend" : {
+                        dir('backend') {
+                            git url: 'https://github.com/jabandfriends/rentora-api.git', branch: 'main', credentialsId: 'github-creds'
+                        }
+                    },
+                    "Frontend" : {
+                        dir('frontend') {
+                            git url: 'https://github.com/jabandfriends/rentora-interface.git', branch: 'main', credentialsId: 'github-creds'
+                        }
+                    }
                 )
             }
         }
@@ -58,8 +63,9 @@ pipeline {
         stage('Run Postgres Only') {
             steps {
                 dir('backend') {
-                    sh 'docker-compose down -v || true'
-                    sh 'docker-compose up -d database'
+                    sh 'docker rm -f apartment-api-db || true'
+                    sh 'docker compose down -v || true'
+                    sh 'docker compose up -d --force-recreate database'
                 }
             }
         }
@@ -69,11 +75,6 @@ pipeline {
                 dir('backend') {
                     sh "docker build -t ${BACKEND_IMAGE} ."
                 }
-            }
-        }
-        stage('Setup Docker Network') {
-            steps {
-                sh "docker network create rentora-network || true"
             }
         }
         stage('Run Backend Container') {
@@ -122,6 +123,14 @@ pipeline {
             }
         }
         
+        stage('Checkout') {
+            steps {
+                dir('frontend') {
+                    git url: 'https://github.com/jabandfriends/rentora-interface.git', branch: 'test/e2e-testing', credentialsId: 'github-creds'
+                }
+            }
+        }
+        
         stage('Run Cypress E2E Tests') {
             steps {
                 dir('frontend') {
@@ -134,18 +143,52 @@ pipeline {
             }
         }
 
+        stage('Login and push to DockerHub') {
+            when {
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
+            steps {
+                script {
+                    sh "echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin"
+                    sh "docker tag ${BACKEND_IMAGE} $DOCKERHUB_CREDENTIALS_USR/rentora_backend:latest"
+                    sh "docker tag ${FRONTEND_IMAGE} $DOCKERHUB_CREDENTIALS_USR/rentora_frontend:latest"
+                    parallel(
+                        "Push Backend Image" : {
+                            dir('backend') {
+                                sh "docker push $DOCKERHUB_CREDENTIALS_USR/rentora_backend:latest"
+                            }
+                        },
+                        "Push Frontend Image" : {
+                            dir('frontend') {
+                                sh "docker push $DOCKERHUB_CREDENTIALS_USR/rentora_frontend:latest"
+                            }
+                        }
+                    )
+                    sh "docker logout"
+                }
+            }
+        }
+
     }
 
     post {
         always {
             echo 'Finish'
-            // sh """
-            // docker rm -f ${FRONTEND_CONTAINER} || true
-            // docker rmi -f ${FRONTEND_IMAGE} ${BACKEND_IMAGE} || true
-            // """
-            // dir('backend') {
-            //     sh 'docker-compose down -v || true'
-            // }
+            sh """
+            docker rm -f ${BACKEND_CONTAINER} || true
+            docker rm -f ${FRONTEND_CONTAINER} || true
+            docker rmi -f ${FRONTEND_IMAGE} ${BACKEND_IMAGE} || true
+            docker logout || true
+            """
+            dir('backend') {
+                sh 'docker-compose down -v || true'
+            }
+        }
+        failure {
+            echo 'Failed'
+        }
+        success {
+            echo 'Success'
         }
     }
 }
