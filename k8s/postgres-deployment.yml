@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rentora-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rentora-postgres
+  template:
+    metadata:
+      labels:
+        app: rentora-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "apartment_db"
+            - name: POSTGRES_USER
+              value: "admin"
+            - name: POSTGRES_PASSWORD
+              value: "admin"
+          volumeMounts:
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: init-sql
+          configMap:
+            name: rentora-db-init   # your init SQL ConfigMap
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rentora-postgres
+spec:
+  selector:
+    app: rentora-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
