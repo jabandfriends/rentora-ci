@@ -19,7 +19,7 @@ spec:
         - containerPort: 80
         env:
         - name: RENTORA_API_BASE_URL
-          value: "http://localhost:30081" # use backend service
+          value: "http://rentora-backend-service:8081" # use backend service
 ---
 apiVersion: v1
 kind: Service
