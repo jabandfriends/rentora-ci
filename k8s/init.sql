@@ -1,5 +1,5 @@
 -- =========================================
--- UPGRADED APARTMENT MANAGEMENT SYSTEM DATABASE SCHEMA
+-- APARTMENT MANAGEMENT SYSTEM DATABASE SCHEMA
 -- =========================================
 
 -- Enable extensions
@@ -71,7 +71,6 @@ CREATE TABLE IF NOT EXISTS apartments (
     currency VARCHAR(3) DEFAULT 'THB',
     created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     status VARCHAR(20) DEFAULT 'setup_incomplete' CHECK (status IN ('setup_incomplete', 'setup_in_progress', 'active', 'inactive')),
-    settings JSONB DEFAULT '{}', -- Store apartment-specific settings
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -80,14 +79,13 @@ CREATE TRIGGER update_apartments_updated_at BEFORE UPDATE ON apartments
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================
--- 3. APARTMENT USERS (Enhanced)
+-- 3. APARTMENT USERS
 -- =========================================
 CREATE TABLE IF NOT EXISTS apartment_users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     apartment_id UUID REFERENCES apartments(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    role VARCHAR(20) NOT NULL DEFAULT 'tenant' CHECK (role IN ('tenant', 'admin')),
-    permissions JSONB DEFAULT '[]', -- Store specific permissions
+    role VARCHAR(20) NOT NULL DEFAULT 'tenant' CHECK (role IN ('tenant', 'admin','maintenance','accountant')),  --     admin  = manager
     created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     joined_at TIMESTAMPTZ DEFAULT NOW(),
     left_at TIMESTAMPTZ,
@@ -144,16 +142,7 @@ CREATE TABLE IF NOT EXISTS units (
     floor_id UUID REFERENCES floors(id) ON DELETE CASCADE,
     unit_name VARCHAR(50) NOT NULL,
     unit_type VARCHAR(20) DEFAULT 'apartment', -- apartment, studio, penthouse, commercial
-    bedrooms INTEGER DEFAULT 1,
-    bathrooms NUMERIC(2,1) DEFAULT 1,
-    square_meters NUMERIC(8,2),
-    balcony_count INTEGER DEFAULT 0,
-    parking_spaces INTEGER DEFAULT 0,
     status VARCHAR(20) DEFAULT 'available' CHECK (status IN ('available', 'occupied', 'maintenance', 'reserved')),
-    furnishing_status VARCHAR(20) DEFAULT 'unfurnished' CHECK (furnishing_status IN ('furnished', 'semi_furnished', 'unfurnished')),
-    floor_plan_url TEXT,
-    images JSONB DEFAULT '[]', -- Array of image URLs
-    features JSONB DEFAULT '[]', -- Array of features
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -170,13 +159,12 @@ CREATE TABLE IF NOT EXISTS utilities (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     apartment_id UUID REFERENCES apartments(id) ON DELETE CASCADE,
     utility_name VARCHAR(50) NOT NULL,
-    utility_type VARCHAR(20) NOT NULL CHECK (utility_type IN ('fixed', 'meter', 'tiered')),
+    utility_type VARCHAR(20) NOT NULL CHECK (utility_type IN ('fixed', 'meter')),
     category VARCHAR(20) DEFAULT 'utility' CHECK (category IN ('utility', 'service', 'fee')), -- water, electricity, gas, internet, etc.
     fixed_price NUMERIC(10,2),
     unit_price NUMERIC(10,4), -- More precision for utility rates
     minimum_charge NUMERIC(10,2) DEFAULT 0,
     -- Tiered pricing structure
-    tier_structure JSONB, -- [{min: 0, max: 100, rate: 3.50}, {min: 101, max: 300, rate: 4.00}]
     billing_cycle VARCHAR(10) DEFAULT 'monthly' CHECK (billing_cycle IN ('monthly', 'quarterly', 'yearly')),
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -187,7 +175,7 @@ CREATE TRIGGER update_utilities_updated_at BEFORE UPDATE ON utilities
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================
--- 8. EXTRA SERVICES (Enhanced)
+-- 8. EXTRA SERVICES
 -- =========================================
 CREATE TABLE IF NOT EXISTS extra_services (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -208,7 +196,7 @@ CREATE TRIGGER update_extra_services_updated_at BEFORE UPDATE ON extra_services
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================
--- 9. UNIT SERVICES (Enhanced)
+-- 9. UNIT SERVICES
 -- =========================================
 CREATE TABLE IF NOT EXISTS unit_services (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -231,13 +219,13 @@ CREATE TRIGGER update_unit_services_updated_at BEFORE UPDATE ON unit_services
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================
--- 10. APARTMENT PAYMENT METHODS (Enhanced)
+-- 10. APARTMENT PAYMENT METHODS(Enhanced)
 -- =========================================
 CREATE TABLE IF NOT EXISTS apartment_payment_methods (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     apartment_id UUID REFERENCES apartments(id) ON DELETE CASCADE,
     method_name VARCHAR(50) NOT NULL,
-    method_type VARCHAR(20) NOT NULL CHECK (method_type IN ('bank_transfer', 'promptpay', 'credit_card', 'cash', 'cheque')),
+    method_type VARCHAR(20) NOT NULL CHECK (method_type IN ('bank_transfer', 'promptpay')),
     bank_name VARCHAR(100),
     bank_account_number VARCHAR(50),
     account_holder_name VARCHAR(100),
@@ -264,9 +252,6 @@ CREATE TABLE IF NOT EXISTS contracts (
     contract_number VARCHAR(50) UNIQUE,
     unit_id UUID REFERENCES units(id) ON DELETE CASCADE,
     tenant_user_id UUID REFERENCES users(id),
-    guarantor_name VARCHAR(100),
-    guarantor_phone VARCHAR(15),
-    guarantor_id_number VARCHAR(20),
     rental_type VARCHAR(20) NOT NULL CHECK (rental_type IN ('daily', 'monthly', 'yearly')),
     start_date DATE NOT NULL,
     end_date DATE,
@@ -313,7 +298,7 @@ CREATE TRIGGER update_contracts_updated_at BEFORE UPDATE ON contracts
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================
--- 12. UNIT UTILITIES (Enhanced)
+-- 12. UNIT UTILITIES
 -- =========================================
 CREATE TABLE IF NOT EXISTS unit_utilities (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -328,7 +313,6 @@ CREATE TABLE IF NOT EXISTS unit_utilities (
     notes TEXT,
     read_by_user_id UUID REFERENCES users(id),
     verified_by_user_id UUID REFERENCES users(id),
-    images JSONB DEFAULT '[]', -- Photos of meter readings
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(unit_id, utility_id, usage_month)
@@ -338,7 +322,7 @@ CREATE TRIGGER update_unit_utilities_updated_at BEFORE UPDATE ON unit_utilities
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================
--- 13. INVOICE GENERATIONS (Enhanced)
+-- 13. MONTHLY INVOICE
 -- =========================================
 CREATE TABLE IF NOT EXISTS invoices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -360,9 +344,6 @@ CREATE TABLE IF NOT EXISTS invoices (
     discounts_amount NUMERIC(10,2) DEFAULT 0,
     tax_amount NUMERIC(10,2) DEFAULT 0,
     total_amount NUMERIC(10,2) NOT NULL,
-    
-    -- Detailed breakdown
-    line_items JSONB NOT NULL DEFAULT '[]', -- Detailed breakdown of all charges
     
     payment_status VARCHAR(20) DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'partially_paid', 'paid', 'overdue', 'cancelled')),
     paid_amount NUMERIC(10,2) DEFAULT 0,
@@ -402,7 +383,7 @@ CREATE TRIGGER update_invoices_updated_at BEFORE UPDATE ON invoices
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================
--- 14. PAYMENTS (Enhanced)
+-- 14. PAYMENTS
 -- =========================================
 CREATE TABLE IF NOT EXISTS payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -420,7 +401,7 @@ CREATE TABLE IF NOT EXISTS payments (
     received_by_user_id UUID REFERENCES users(id),
     
     -- Dates
-    paid_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    paid_at TIMESTAMPTZ ,
     processed_at TIMESTAMPTZ,
     
     -- Status and verification
@@ -458,7 +439,7 @@ CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON payments
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================
--- 15. MAINTENANCE REQUESTS (Enhanced)
+-- 15. MAINTENANCE REQUESTS
 -- =========================================
 CREATE TABLE IF NOT EXISTS maintenance_requests (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -520,7 +501,7 @@ CREATE TRIGGER update_maintenance_requests_updated_at BEFORE UPDATE ON maintenan
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================
--- 16. NOTIFICATIONS (New)
+-- 16. NOTIFICATIONS
 -- =========================================
 CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -529,10 +510,8 @@ CREATE TABLE IF NOT EXISTS notifications (
     type VARCHAR(30) NOT NULL, -- invoice_generated, payment_received, maintenance_scheduled, etc.
     title VARCHAR(200) NOT NULL,
     message TEXT,
-    data JSONB DEFAULT '{}', -- Additional notification data
     is_read BOOLEAN DEFAULT false,
     read_at TIMESTAMPTZ,
-    sent_via JSONB DEFAULT '[]', -- ['email', 'sms', 'push', 'in_app']
     expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -547,89 +526,71 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     action VARCHAR(10) NOT NULL CHECK (action IN ('INSERT', 'UPDATE', 'DELETE')),
     old_values JSONB,
     new_values JSONB,
-    changed_by_user_id UUID REFERENCES users(id),
-    apartment_id UUID REFERENCES apartments(id),
+    changed_by_apartment_user_id UUID REFERENCES apartment_users(id) ON DELETE SET NULL,
+    apartment_id UUID REFERENCES apartments(id) ON DELETE CASCADE,
     ip_address INET,
     user_agent TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- =========================================
--- 18. SYSTEM SETTINGS (New)
--- =========================================
-CREATE TABLE IF NOT EXISTS system_settings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    apartment_id UUID REFERENCES apartments(id) ON DELETE CASCADE,
-    setting_key VARCHAR(50) NOT NULL,
-    setting_value JSONB,
-    description TEXT,
-    is_system_setting BOOLEAN DEFAULT false, -- true for system-wide settings
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(apartment_id, setting_key)
-);
-
-CREATE TRIGGER update_system_settings_updated_at BEFORE UPDATE ON system_settings
-FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
 CREATE TABLE IF NOT EXISTS adhoc_invoices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     adhoc_number VARCHAR(50) UNIQUE,
-    
+
     -- References
     apartment_id UUID REFERENCES apartments(id) ON DELETE CASCADE,
     unit_id UUID REFERENCES units(id) ON DELETE CASCADE,
     tenant_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    
+
     -- Invoice details
     title VARCHAR(200) NOT NULL,
     description TEXT,
     category VARCHAR(30) DEFAULT 'miscellaneous', -- penalty , miscellaneous
-    
+
     -- Amount details
     final_amount NUMERIC(10,2) NOT NULL, -- already includes total + tax
     paid_amount NUMERIC(10,2) DEFAULT 0,
-    
+
     -- Dates
     invoice_date DATE NOT NULL DEFAULT CURRENT_DATE,
     due_date DATE,
-    
+
     -- Monthly invoice integration
     include_in_monthly BOOLEAN DEFAULT true,
     target_monthly_invoice_month DATE, -- Which month's invoice to include this in
     monthly_invoice_id UUID REFERENCES invoices(id) ON DELETE SET NULL, -- Set when included
     included_at TIMESTAMPTZ, -- When it was included in monthly invoice
-    
+
     -- Payment tracking
     payment_status VARCHAR(20) DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'paid', 'cancelled','overdue')),
     paid_at TIMESTAMPTZ,
-    
+
     -- Admin details
     created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     approved_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     approved_at TIMESTAMPTZ,
-    
+
     -- Status and notes
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('draft', 'active', 'cancelled', 'included')),
     priority VARCHAR(20) DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
-    
+
     -- Attachments and documentation
-    receipt_urls JSONB DEFAULT '[]', -- Array of receipt/document URLs
+    receipt_urls VARCHAR(200), -- Array of receipt/document URLs
     images JSONB DEFAULT '[]', -- Array of image URLs (for proof of purchase, etc.)
     notes TEXT,
-    
+
     -- Metadata
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    
+
     -- Constraints
     CONSTRAINT check_adhoc_amounts CHECK (
-        final_amount >= 0 AND
-        paid_amount >= 0 AND 
-        paid_amount <= final_amount
+    final_amount >= 0 AND
+    paid_amount >= 0 AND
+    paid_amount <= final_amount
     ),
     CONSTRAINT check_adhoc_dates CHECK (
-        due_date IS NULL OR due_date >= invoice_date
+    due_date IS NULL OR due_date >= invoice_date
     )
 );
 
@@ -657,8 +618,76 @@ CREATE TRIGGER update_adhoc_invoices_updated_at
     FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
 
+
+CREATE TABLE IF NOT EXISTS supplies (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    apartment_id UUID REFERENCES apartments(id) ON DELETE CASCADE,
+
+    name VARCHAR(100) NOT NULL,
+
+    -- Category as VARCHAR with allowed values
+    category VARCHAR(50) NOT NULL CHECK (category IN ('electrical', 'plumbing', 'cleaning', 'hvac', 'painting', 'general')),
+
+    description TEXT,
+    unit VARCHAR(20) NOT NULL,  -- e.g., pcs, liters, boxes
+    stock_quantity INT DEFAULT 0 CHECK (stock_quantity >= 0),
+    min_stock INT DEFAULT 5 CHECK (min_stock >= 0), -- alert when below this
+    cost_per_unit NUMERIC(10,2) DEFAULT 0 CHECK (cost_per_unit >= 0),
+    is_deleted BOOLEAN default false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TRIGGER update_supplies_updated_at
+    BEFORE UPDATE ON supplies
+    FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE IF NOT EXISTS maintenance_supplies (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    maintenance_request_id UUID REFERENCES maintenance_requests(id) ON DELETE CASCADE,
+    supply_id UUID REFERENCES supplies(id) ON DELETE RESTRICT,
+    quantity_used INT NOT NULL CHECK (quantity_used > 0),
+    cost NUMERIC(10,2) NOT NULL ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS supply_transactions (
+   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+   supply_id UUID REFERENCES supplies(id) ON DELETE CASCADE,
+   maintenance_request_id UUID REFERENCES maintenance_requests(id),
+   apartment_user_id UUID REFERENCES apartment_users(id) ON DELETE SET NULL,
+   transaction_type VARCHAR(20) CHECK (transaction_type IN ('purchase', 'use', 'adjustment')),
+    number_type VARCHAR(20) CHECK (number_type IN('negative','positive')),
+   quantity INT NOT NULL,
+   note TEXT,
+   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION calculate_maintenance_supply_cost()
+    RETURNS TRIGGER AS $$
+DECLARE
+    unit_cost NUMERIC(10,2);
+BEGIN
+    -- Get cost per unit from supplies table
+    SELECT cost_per_unit INTO unit_cost FROM supplies WHERE id = NEW.supply_id;
+
+    -- Calculate total cost
+    NEW.cost := unit_cost * NEW.quantity_used;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_calculate_maintenance_supply_cost
+    BEFORE INSERT ON maintenance_supplies
+    FOR EACH ROW
+EXECUTE FUNCTION calculate_maintenance_supply_cost();
+
+
+
 -- =========================================
--- 19. ENHANCED INDEXES
+-- INDEXES
 -- =========================================
 
 -- Users indexes
@@ -725,7 +754,7 @@ CREATE INDEX idx_notifications_unread ON notifications(user_id, is_read, created
 
 -- Audit log indexes
 CREATE INDEX idx_audit_logs_table_record ON audit_logs(table_name, record_id);
-CREATE INDEX idx_audit_logs_user ON audit_logs(changed_by_user_id);
+CREATE INDEX idx_audit_logs_user ON audit_logs(changed_by_apartment_user_id);
 CREATE INDEX idx_audit_logs_apartment ON audit_logs(apartment_id);
 CREATE INDEX idx_audit_logs_created ON audit_logs(created_at);
 
@@ -744,286 +773,6 @@ CREATE INDEX idx_adhoc_invoices_date ON adhoc_invoices(invoice_date);
 CREATE INDEX idx_adhoc_invoices_monthly_target ON adhoc_invoices(target_monthly_invoice_month, include_in_monthly) WHERE include_in_monthly = true;
 CREATE INDEX idx_adhoc_invoices_pending_inclusion ON adhoc_invoices(apartment_id, target_monthly_invoice_month, include_in_monthly, status) WHERE include_in_monthly = true AND monthly_invoice_id IS NULL AND status = 'active';
 
--- =========================================
--- 20. VIEWS FOR COMMON QUERIES
--- =========================================
-
--- View for unit details with building and floor info
-CREATE OR REPLACE VIEW v_unit_details AS
-SELECT 
-    u.id,
-    u.unit_name,
-    u.unit_type,
-    u.bedrooms,
-    u.bathrooms,
-    u.square_meters,
-    u.status,
-    u.furnishing_status,
-    f.floor_number,
-    f.floor_name,
-    b.name as building_name,
-    a.name as apartment_name,
-    a.id as apartment_id
-FROM units u
-JOIN floors f ON u.floor_id = f.id
-JOIN buildings b ON f.building_id = b.id  
-JOIN apartments a ON b.apartment_id = a.id;
-
--- View for current active contracts
-CREATE OR REPLACE VIEW v_active_contracts AS
-SELECT 
-    c.*,
-    u.unit_name,
-    CONCAT(usr.first_name, ' ', usr.last_name) as tenant_name,
-    usr.email as tenant_email,
-    usr.phone_number as tenant_phone,
-    vud.building_name,
-    vud.apartment_name
-FROM contracts c
-JOIN units u ON c.unit_id = u.id
-JOIN users usr ON c.tenant_user_id = usr.id
-JOIN v_unit_details vud ON u.id = vud.id
-WHERE c.status = 'active'
-AND (c.end_date IS NULL OR c.end_date >= CURRENT_DATE);
-
--- View for invoice summary
-CREATE OR REPLACE VIEW v_invoice_summary AS
-SELECT 
-    i.*,
-    CONCAT(u.first_name, ' ', u.last_name) as tenant_name,
-    u.email as tenant_email,
-    vud.unit_name,
-    vud.building_name,
-    vud.apartment_name,
-    COALESCE(p.paid_amount, 0) as total_paid,
-    (i.total_amount - COALESCE(p.paid_amount, 0)) as balance_due
-FROM invoices i
-JOIN users u ON i.tenant_user_id = u.id
-JOIN v_unit_details vud ON i.unit_id = vud.id
-LEFT JOIN (
-    SELECT invoice_id, SUM(amount) as paid_amount
-    FROM payments 
-    WHERE payment_status = 'completed'
-    GROUP BY invoice_id
-) p ON i.id = p.invoice_id;
-
--- View for ad-hoc invoice details with related information
-CREATE OR REPLACE VIEW v_adhoc_invoice_details AS
-SELECT 
-    ah.*,
-    CONCAT(t.first_name, ' ', t.last_name) as tenant_name,
-    t.email as tenant_email,
-    t.phone_number as tenant_phone,
-    vud.unit_name,
-    vud.building_name,
-    vud.apartment_name,
-    CONCAT(c.first_name, ' ', c.last_name) as created_by_name,
-    CONCAT(a.first_name, ' ', a.last_name) as approved_by_name,
-    mi.invoice_number as monthly_invoice_number,
-    (ah.final_amount - ah.paid_amount) as balance_due
-FROM adhoc_invoices ah
-LEFT JOIN users t ON ah.tenant_user_id = t.id
-LEFT JOIN v_unit_details vud ON ah.unit_id = vud.id
-LEFT JOIN users c ON ah.created_by_user_id = c.id
-LEFT JOIN users a ON ah.approved_by_user_id = a.id
-LEFT JOIN invoices mi ON ah.monthly_invoice_id = mi.id;
-
--- View for pending ad-hoc invoices to be included in monthly invoices
-CREATE OR REPLACE VIEW v_pending_adhoc_for_monthly AS
-SELECT 
-    ah.*,
-    vud.unit_name,
-    vud.building_name,
-    CONCAT(t.first_name, ' ', t.last_name) as tenant_name
-FROM adhoc_invoices ah
-LEFT JOIN users t ON ah.tenant_user_id = t.id
-LEFT JOIN v_unit_details vud ON ah.unit_id = vud.id
-WHERE ah.include_in_monthly = true 
-AND ah.monthly_invoice_id IS NULL 
-AND ah.status = 'active'
-AND ah.target_monthly_invoice_month IS NOT NULL;
-
--- =========================================
--- 21. SAMPLE DATA AND FUNCTIONS
--- =========================================
-
--- Function to calculate late fees
-CREATE OR REPLACE FUNCTION calculate_late_fee(
-    invoice_id UUID,
-    payment_date DATE DEFAULT CURRENT_DATE
-)
-RETURNS NUMERIC(10,2) AS $$
-DECLARE
-    invoice_due_date DATE;
-    invoice_total NUMERIC(10,2);
-    apt_late_fee NUMERIC(10,2);
-    apt_late_fee_type VARCHAR(20);
-    grace_period_days INTEGER;
-    days_late INTEGER;
-    late_fee NUMERIC(10,2) := 0;
-BEGIN
-    -- Get invoice and apartment details
-    SELECT i.due_date, i.total_amount, a.late_fee, a.late_fee_type, a.grace_period_days
-    INTO invoice_due_date, invoice_total, apt_late_fee, apt_late_fee_type, grace_period_days
-    FROM invoices i
-    JOIN apartments a ON i.apartment_id = a.id
-    WHERE i.id = calculate_late_fee.invoice_id;
-    
-    -- Check if invoice exists
-    IF invoice_due_date IS NULL THEN
-        RETURN 0;
-    END IF;
-    
-    -- Calculate days late (excluding grace period)
-    days_late := payment_date - invoice_due_date - COALESCE(grace_period_days, 0);
-    
-    -- Calculate late fee if payment is late
-    IF days_late > 0 THEN
-        IF apt_late_fee_type = 'percentage' THEN
-            late_fee := invoice_total * (apt_late_fee / 100);
-        ELSE
-            late_fee := apt_late_fee;
-        END IF;
-    END IF;
-    
-    RETURN COALESCE(late_fee, 0);
-END;
-$$ LANGUAGE plpgsql;
-
--- Function to update invoice payment status
-CREATE OR REPLACE FUNCTION update_invoice_payment_status()
-RETURNS TRIGGER AS $$
-DECLARE
-    total_paid NUMERIC(10,2);
-    invoice_total NUMERIC(10,2);
-BEGIN
-    -- Calculate total paid for the invoice
-    SELECT COALESCE(SUM(amount), 0), i.total_amount
-    INTO total_paid, invoice_total
-    FROM payments p
-    RIGHT JOIN invoices i ON p.invoice_id = i.id
-    WHERE i.id = COALESCE(NEW.invoice_id, OLD.invoice_id)
-    AND p.payment_status = 'completed'
-    GROUP BY i.total_amount;
-    
-    -- Update invoice payment status
-    UPDATE invoices 
-    SET 
-        paid_amount = total_paid,
-        payment_status = CASE 
-            WHEN total_paid = 0 THEN 'unpaid'
-            WHEN total_paid >= invoice_total THEN 'paid'
-            WHEN total_paid > 0 AND total_paid < invoice_total THEN 'partially_paid'
-            ELSE payment_status
-        END,
-        updated_at = NOW()
-    WHERE id = COALESCE(NEW.invoice_id, OLD.invoice_id);
-    
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to update invoice status when payments change
-CREATE TRIGGER update_invoice_status_on_payment
-    AFTER INSERT OR UPDATE OR DELETE ON payments
-    FOR EACH ROW
-    EXECUTE FUNCTION update_invoice_payment_status();
-
-
-
-
-
-
-
--- Function to remove ad-hoc invoice from monthly invoice
-CREATE OR REPLACE FUNCTION remove_adhoc_from_monthly_invoice(
-    adhoc_invoice_id UUID
-)
-RETURNS BOOLEAN AS $$
-DECLARE
-    adhoc_record RECORD;
-    monthly_invoice_record RECORD;
-    updated_line_items JSONB;
-    item JSONB;
-BEGIN
-    -- Get the ad-hoc invoice details
-    SELECT * INTO adhoc_record
-    FROM adhoc_invoices 
-    WHERE id = adhoc_invoice_id
-    AND monthly_invoice_id IS NOT NULL;
-    
-    IF adhoc_record.id IS NULL THEN
-        RETURN FALSE;
-    END IF;
-    
-    -- Get the monthly invoice
-    SELECT * INTO monthly_invoice_record
-    FROM invoices 
-    WHERE id = adhoc_record.monthly_invoice_id;
-    
-    -- Remove the ad-hoc item from line items and update total
-    updated_line_items := '[]'::jsonb;
-    FOR item IN SELECT * FROM jsonb_array_elements(monthly_invoice_record.line_items)
-    LOOP
-        IF NOT (item->>'type' = 'adhoc' AND (item->>'adhoc_id')::UUID = adhoc_invoice_id) THEN
-            updated_line_items := updated_line_items || item;
-        END IF;
-    END LOOP;
-    
-    -- Update monthly invoice
-    UPDATE invoices 
-    SET 
-        line_items = updated_line_items,
-        total_amount = total_amount - adhoc_record.final_amount,
-        updated_at = NOW()
-    WHERE id = adhoc_record.monthly_invoice_id;
-    
-    -- Reset ad-hoc invoice status
-    UPDATE adhoc_invoices 
-    SET 
-        monthly_invoice_id = NULL,
-        included_at = NULL,
-        status = 'active',
-        updated_at = NOW()
-    WHERE id = adhoc_invoice_id;
-    
-    RETURN TRUE;
-END;
-$$ LANGUAGE plpgsql;
-
-
--- Function to update unit status based on contracts
-CREATE OR REPLACE FUNCTION update_unit_status()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Update unit status when contract status changes
-    IF TG_OP = 'UPDATE' AND OLD.status != NEW.status THEN
-        UPDATE units 
-        SET status = CASE 
-            WHEN NEW.status = 'active' THEN 'occupied'
-            WHEN NEW.status IN ('terminated', 'expired') THEN 'available'
-            ELSE status
-        END
-        WHERE id = NEW.unit_id;
-    END IF;
-    
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER update_unit_status_on_contract_change
-    AFTER UPDATE ON contracts
-    FOR EACH ROW
-    EXECUTE FUNCTION update_unit_status();
-
--- =========================================
--- 22. SECURITY AND PERMISSIONS
--- =========================================
-
--- Row Level Security policies can be added here
--- Example for apartment-based access control:
-
--- Enable RLS on key tables
 ALTER TABLE apartments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE apartment_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE buildings ENABLE ROW LEVEL SECURITY;
@@ -1033,19 +782,7 @@ ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE maintenance_requests ENABLE ROW LEVEL SECURITY;
 
--- Example policy for apartment access (you'll need to implement session management)
--- CREATE POLICY apartment_access ON apartments
--- FOR ALL TO authenticated_user
--- USING (id IN (
---     SELECT apartment_id FROM apartment_users 
---     WHERE user_id = current_user_id() AND is_active = true
--- ));
 
--- =========================================
--- 23. PERFORMANCE OPTIMIZATIONS
--- =========================================
-
--- Partial indexes for better performance
 CREATE INDEX idx_invoices_unpaid ON invoices(unit_id, due_date) 
 WHERE payment_status IN ('unpaid', 'partially_paid');
 
@@ -1055,9 +792,6 @@ WHERE status = 'active';
 CREATE INDEX idx_maintenance_open ON maintenance_requests(unit_id, created_at)
 WHERE status IN ('pending', 'assigned', 'in_progress');
 
--- =========================================
--- 24. DATA INTEGRITY CONSTRAINTS
--- =========================================
 
 -- Additional check constraints
 ALTER TABLE contracts ADD CONSTRAINT check_contract_dates 
@@ -1072,11 +806,217 @@ CHECK (amount > 0);
 ALTER TABLE unit_utilities ADD CONSTRAINT check_meter_readings 
 CHECK (meter_end IS NULL OR meter_start IS NULL OR meter_end >= meter_start);
 
+--==================================================
+-- MOCK DATA ----------------------------------------
+--==================================================
+-- Create Apartment and return ID
+DO $$
+DECLARE
+    v_apartment_id UUID;
+    v_admin_user_id UUID;
+    v_admin_apartment_user_id UUID;
+BEGIN
+    SELECT id INTO v_admin_user_id FROM users WHERE email = 'admin@example.com';
 
--- =========================================
--- 26. BACKUP AND MAINTENANCE PROCEDURES
--- =========================================
+    INSERT INTO apartments (id, name, address, city, created_by_user_id, status)
+    VALUES (
+               gen_random_uuid(),
+               'GreenVille Apartment',
+               '123 Sukhumvit Rd, Bangkok',
+               'Bangkok',
+               v_admin_user_id,
+               'active'
+           )
+    RETURNING id INTO v_apartment_id;
 
+    INSERT INTO apartment_users (id, apartment_id, user_id, role, created_by_user_id)
+    VALUES (
+               gen_random_uuid(),
+               v_apartment_id,
+               v_admin_user_id,
+               'admin',
+               v_admin_user_id
+           )
+    RETURNING id INTO v_admin_apartment_user_id;
+
+    RAISE NOTICE '✅ Apartment Created: %, Admin Linked: %', v_apartment_id, v_admin_apartment_user_id;
+END $$;
+
+DO $$
+DECLARE
+    v_apartment_id UUID;
+    v_building_id UUID;
+BEGIN
+    SELECT id INTO v_apartment_id FROM apartments WHERE name = 'GreenVille Apartment';
+
+    INSERT INTO buildings (id, apartment_id, name, total_floors)
+    VALUES (
+               gen_random_uuid(),
+               v_apartment_id,
+               'Building A',
+               2
+           )
+    RETURNING id INTO v_building_id;
+
+    RAISE NOTICE '🏢 Building Created: %', v_building_id;
+END $$;
+
+DO $$
+DECLARE
+    v_building_id UUID;
+    v_floor1_id UUID;
+    v_floor2_id UUID;
+BEGIN
+    SELECT id INTO v_building_id FROM buildings WHERE name = 'Building A';
+
+    INSERT INTO floors (id, building_id, floor_number, floor_name, total_units)
+    VALUES
+        (gen_random_uuid(), v_building_id, 1, 'First Floor', 12),
+        (gen_random_uuid(), v_building_id, 2, 'Second Floor', 12);
+
+    RAISE NOTICE '🏬 Floors created for Building A';
+END $$;
+
+-- Floor 1
+DO $$
+DECLARE
+    v_floor_id UUID;
+    i INT;
+BEGIN
+    SELECT id INTO v_floor_id FROM floors WHERE floor_number = 1;
+
+    FOR i IN 1..12 LOOP
+            INSERT INTO units (id, floor_id, unit_name, status)
+            VALUES (
+                       gen_random_uuid(),
+                       v_floor_id,
+                       FORMAT('A1-%02s', i),
+                       'available'
+                   );
+        END LOOP;
+
+    RAISE NOTICE '✅ Floor 1: 12 units created';
+END $$;
+
+-- Floor 2
+DO $$
+DECLARE
+    v_floor_id UUID;
+    i INT;
+BEGIN
+    SELECT id INTO v_floor_id FROM floors WHERE floor_number = 2;
+
+    FOR i IN 1..12 LOOP
+            INSERT INTO units (id, floor_id, unit_name, status)
+            VALUES (
+                       gen_random_uuid(),
+                       v_floor_id,
+                       FORMAT('A2-%02s', i),
+                       'available'
+                   );
+        END LOOP;
+
+    RAISE NOTICE '✅ Floor 2: 12 units created';
+END $$;
+
+DO $$
+    DECLARE
+        v_apartment_id UUID;
+    BEGIN
+        SELECT id INTO v_apartment_id FROM apartments WHERE name = 'GreenVille Apartment';
+
+        -- Electricity
+        INSERT INTO utilities (id, apartment_id, utility_name, utility_type, category, unit_price, billing_cycle, is_active)
+        VALUES (
+                   gen_random_uuid(),
+                   v_apartment_id,
+                   'electric',
+                   'meter',      -- meter-based
+                   'utility',
+                   4.50,         -- THB per kWh example
+                   'monthly',
+                   TRUE
+               );
+
+        -- Water
+        INSERT INTO utilities (id, apartment_id, utility_name, utility_type, category, unit_price, billing_cycle, is_active)
+        VALUES (
+                   gen_random_uuid(),
+                   v_apartment_id,
+                   'water',
+                   'meter',      -- meter-based
+                   'utility',
+                   25.00,        -- THB per cubic meter example
+                   'monthly',
+                   TRUE
+               );
+
+        RAISE NOTICE '✅ Utilities (Water & Electricity) added for Apartment %', v_apartment_id;
+    END $$;
+DO $$
+DECLARE
+    v_apartment_id UUID;
+    v_admin_user_id UUID;
+BEGIN
+    -- Get apartment id
+    SELECT id INTO v_apartment_id FROM apartments WHERE name = 'GreenVille Apartment';
+
+    -- Get admin user id
+    SELECT id INTO v_admin_user_id FROM users WHERE email = 'admin@example.com';
+
+    -- Bank Transfer
+    INSERT INTO apartment_payment_methods (
+        id, apartment_id, method_name, method_type, bank_name, bank_account_number, account_holder_name,
+        processing_fee_percentage, is_active, created_by_user_id
+    )
+    VALUES (
+               gen_random_uuid(),
+               v_apartment_id,
+               'bank_transfer',
+               'bank_transfer',
+               'Bangkok Bank',
+               '123-456-7890',
+               'GreenVille Apartment Co., Ltd.',
+               0.0,
+               TRUE,
+               v_admin_user_id
+           );
+
+    RAISE NOTICE '✅ Apartment Payment Methods added for Apartment %', v_apartment_id;
+END $$;
+
+DO $$
+DECLARE
+    v_apartment_id UUID;
+BEGIN
+    -- Get apartment id
+    SELECT id INTO v_apartment_id FROM apartments WHERE name = 'GreenVille Apartment';
+
+    -- ===============================
+    -- Add default extra services with proper categories
+    -- ===============================
+    INSERT INTO extra_services (
+        apartment_id,
+        service_name,
+        description,
+        price,
+        billing_type,
+        category,
+        requires_approval,
+        max_quantity,
+        is_active,
+        created_at,
+        updated_at
+    )
+    VALUES
+        (v_apartment_id, 'Gym Access', 'Access to the apartment gym facilities', 500, 'monthly', 'gym', false, 1, TRUE, NOW(), NOW()),
+        (v_apartment_id, 'Swimming Pool', 'Access to the swimming pool', 300, 'monthly', 'pool', false, 1, TRUE, NOW(), NOW()),
+        (v_apartment_id, 'Reserved Parking', 'Reserved parking space per month', 1000, 'monthly', 'parking', true, 1, TRUE, NOW(), NOW()),
+        (v_apartment_id, 'Housekeeping', 'Weekly housekeeping service', 800, 'monthly', 'service', true, 1, TRUE, NOW(), NOW()),
+        (v_apartment_id, 'Security Monitoring', '24/7 security monitoring', 400, 'monthly', 'security', false, 1, TRUE, NOW(), NOW());
+
+    RAISE NOTICE '✅ Default apartment extra services added for Apartment %', v_apartment_id;
+END $$;
 -- Function to clean up old audit logs (older than 2 years)
 CREATE OR REPLACE FUNCTION cleanup_old_audit_logs()
 RETURNS INTEGER AS $$
