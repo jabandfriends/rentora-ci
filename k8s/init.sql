@@ -49,6 +49,21 @@ INSERT INTO users (first_name, last_name, email, password_hash)
 VALUES ('Super', 'Admin', 'admin@example.com', crypt('admin123', gen_salt('bf')))
 ON CONFLICT (email) DO NOTHING;
 
+-- Maintenance user
+INSERT INTO users (first_name, last_name, email, password_hash)
+VALUES ('John', 'Maintenance', 'maintenance@example.com', crypt('maint123', gen_salt('bf')))
+ON CONFLICT (email) DO NOTHING;
+
+-- Accountant user
+INSERT INTO users (first_name, last_name, email, password_hash)
+VALUES ('Alice', 'Accountant', 'accountant@example.com', crypt('acct123', gen_salt('bf')))
+ON CONFLICT (email) DO NOTHING;
+
+-- Tenant user
+INSERT INTO users (first_name, last_name, email, password_hash)
+VALUES ('Tom', 'Tenant', 'tenant@example.com', crypt('tenant123', gen_salt('bf')))
+ON CONFLICT (email) DO NOTHING;
+
 -- =========================================
 -- 2. APARTMENTS (Enhanced)
 -- =========================================
@@ -814,10 +829,17 @@ DO $$
 DECLARE
     v_apartment_id UUID;
     v_admin_user_id UUID;
-    v_admin_apartment_user_id UUID;
+    v_maintenance_user_id UUID;
+    v_accountant_user_id UUID;
+    v_tenant_user_id UUID;
 BEGIN
+    -- Get existing users
     SELECT id INTO v_admin_user_id FROM users WHERE email = 'admin@example.com';
+    SELECT id INTO v_maintenance_user_id FROM users WHERE email = 'maintenance@example.com';
+    SELECT id INTO v_accountant_user_id FROM users WHERE email = 'accountant@example.com';
+    SELECT id INTO v_tenant_user_id FROM users WHERE email = 'tenant@example.com';
 
+    -- Create apartment
     INSERT INTO apartments (id, name, address, city, created_by_user_id, status)
     VALUES (
                gen_random_uuid(),
@@ -829,17 +851,23 @@ BEGIN
            )
     RETURNING id INTO v_apartment_id;
 
+    -- Admin user
     INSERT INTO apartment_users (id, apartment_id, user_id, role, created_by_user_id)
-    VALUES (
-               gen_random_uuid(),
-               v_apartment_id,
-               v_admin_user_id,
-               'admin',
-               v_admin_user_id
-           )
-    RETURNING id INTO v_admin_apartment_user_id;
+    VALUES (gen_random_uuid(), v_apartment_id, v_admin_user_id, 'admin', v_admin_user_id);
 
-    RAISE NOTICE '✅ Apartment Created: %, Admin Linked: %', v_apartment_id, v_admin_apartment_user_id;
+    -- Maintenance user
+    INSERT INTO apartment_users (id, apartment_id, user_id, role, created_by_user_id)
+    VALUES (gen_random_uuid(), v_apartment_id, v_maintenance_user_id, 'maintenance', v_admin_user_id);
+
+    -- Accountant user
+    INSERT INTO apartment_users (id, apartment_id, user_id, role, created_by_user_id)
+    VALUES (gen_random_uuid(), v_apartment_id, v_accountant_user_id, 'accountant', v_admin_user_id);
+
+    -- Tenant user
+    INSERT INTO apartment_users (id, apartment_id, user_id, role, created_by_user_id)
+    VALUES (gen_random_uuid(), v_apartment_id, v_tenant_user_id, 'tenant', v_admin_user_id);
+
+    RAISE NOTICE 'Apartment ID: % created successfully with roles', v_apartment_id;
 END $$;
 
 DO $$
